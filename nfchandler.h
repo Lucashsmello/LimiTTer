@@ -31,6 +31,8 @@ void sendCommand(byte cmd, byte datas[], byte length);
 byte sendCommandAndWait(byte cmd, byte data1, byte data2,int maxwait); //length 2
 byte sendCommandAndWait(byte cmd, byte data1, byte data2, byte data3,int maxwait); //length 3
 
+void wakeUpNFC();
+
 void resetCR95HF();
 
 #endif

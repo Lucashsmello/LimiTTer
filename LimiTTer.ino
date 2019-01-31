@@ -33,8 +33,9 @@
 #define MAX_V 4050 // battery full level
 #define MAX_BLE_WAIT 80 // Maximum bluetooth re-connect time in seconds 
 #define SLEEP_TIME 2 // SleepTime (7 points are about 1 minute)
-#define MAX_NFC_READTRIES 10 // Amount of tries for every nfc block-scan
+#define MAX_NFC_READTRIES 4 // Amount of tries for every nfc block-scan
 
+static const char* HEX_SYMBOLS = "0123456789ABCDEF";
 
 const int BLEPin = 3; // BLE power pin.
 const int BLEState = 2; // BLE connection state pin
@@ -92,15 +93,7 @@ void setup() {
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV32);
 
-  delay(10);                      // send a wake up
-  digitalWrite(IRQPin, LOW);      // pulse to put the
-  delayMicroseconds(100);         // BM019 into SPI
-  digitalWrite(IRQPin, HIGH);     // mode
-  delay(10);
-  digitalWrite(IRQPin, LOW);
-  delay(10);
-  digitalWrite(IRQPin, HIGH); 
-  delay(10);
+  wakeUpNFC();
 //  resetCR95HF();
 }
 
@@ -115,20 +108,12 @@ void restartBLE() {
 
 void SetProtocol_Command() {
   Serial.println("SetProtocol_Command");
-  sendCommand(0x02, //Set protocol command
+  byte error_code=sendCommandAndWait(0x02, //Set protocol command
               0x01, // code for ISO/IEC 15693
-              0x0D);// Wait for SOF, 10% modulation, append CRC
-  delay(1);
-  pollUntilRespond();
-  delay(1);
+              0x0D,// Wait for SOF, 10% modulation, append CRC
+              2000);
 
-  digitalWrite(SSPin, LOW);
-  SPI.transfer(0x02);   // SPI control byte for read
-  RXBuffer[0] = SPI.transfer(0);  // response code
-  RXBuffer[1] = SPI.transfer(0);  // length of data
-  digitalWrite(SSPin, HIGH);
-
-  if ((RXBuffer[0] == 0) & (RXBuffer[1] == 0))  // is response code good?
+  if (error_code==0 && ((RXBuffer[0] == 0) && (RXBuffer[1] == 0)))  // is response code good?
   {
     Serial.println("Protocol Set Command OK");
     NFCReady = 1; // NFC is ready
@@ -138,6 +123,7 @@ void SetProtocol_Command() {
     Serial.println("Protocol Set Command FAIL");
     NFCReady = 0; // NFC not ready
   }
+  delay(10);
 }
 
 void Inventory_Command() {
@@ -160,18 +146,29 @@ void Inventory_Command() {
   }
   else
   {
-    Serial.print("Sensor out of range. Error code:");
-    Serial.println(RXBuffer[0]);
+    Serial.print("Sensor out of range. Error code:0x");
+    SerialPrintlnHex(RXBuffer[0]);
     NFCReady = 1;
   }
 }
 
+void SerialPrintlnHex(byte x){
+  char str[3];
+  str[2]=0;
+  byteToHex(x,str);
+  Serial.println(str);
+}
+
+void byteToHex(byte x,char* str_Out){
+  str_Out[0] = HEX_SYMBOLS[(x >> 4) & 0xF];
+  str_Out[1] = HEX_SYMBOLS[ x       & 0xF];
+}
+
 void byteToHex(const byte* x, char* str_Out, byte n){
-  static const char * hex = "0123456789ABCDEF";
   const byte* x_last=x+n;
   for (; x != x_last; str_Out += 2, x++) {
-    str_Out[0] = hex[(*x >> 4) & 0xF];
-    str_Out[1] = hex[ *x       & 0xF];
+    str_Out[0] = HEX_SYMBOLS[(*x >> 4) & 0xF];
+    str_Out[1] = HEX_SYMBOLS[ *x       & 0xF];
   }
   str_Out[0] = 0; //???
 }
@@ -198,11 +195,11 @@ float Read_Memory() {
 
   for ( int b = 3; b < 16; b++) {
     readTry = 0;
-    Serial.print("lmello: reading block:");
+    Serial.print("Reading block ");
     Serial.println(b);
     do {
       readError=sendCommandAndWait(0x04, //Send Receive CR95HF command
-                         0x02, // request Flags byte
+                         0x02, // request Flags byte - Uplink Data Rate HIGH
                          0x20, // Read Single Block command for ISO/IEC 15693
                          b, // memory block address
                          500);
@@ -224,6 +221,8 @@ float Read_Memory() {
     } while ( (readError) && (readTry < MAX_NFC_READTRIES) );
     if(readTry==MAX_NFC_READTRIES){
       Serial.println("Exceeded number of tries");
+      NFCReady = 0;
+      return;
     }
   }
   
@@ -234,14 +233,17 @@ float Read_Memory() {
               0x20, // Read Single Block command for ISO/IEC 15693
               39,// memory block address
               2000);
-    if (RXBuffer[0] != 128)
-      readError = 1;
-
-    memcpy(oneBlock, RXBuffer+3, 8); //dest, source, size
-    byteToHex(oneBlock,str,8);
-    if (!readError)
+    if ((readError==0) && (RXBuffer[0] == 0x80)){
+      memcpy(oneBlock, RXBuffer+3, 8); //dest, source, size
+      byteToHex(oneBlock,str,8);
       elapsedMinutes += str;
+      break;
+    }
+    readError = 1;
+    Serial.print("Error in reading single block 39. Error code: 0x");
+    SerialPrintlnHex(RXBuffer[0]);
     readTry++;
+    delay(10);
   } while ( (readError) && (readTry < MAX_NFC_READTRIES) );
 
   if (!readError)
@@ -380,7 +382,6 @@ float Read_Memory() {
   {
     Serial.print("Read Memory Block Command FAIL");
     NFCReady = 0;
-    readError = 0;
   }
   return 0;
 }
@@ -475,7 +476,7 @@ int readVcc() {
   return batteryLevel;
 }
 
-void goToSleep(const byte interval, int time) { //bugged
+void goToSleep(const byte interval, int time) {
   SPI.end();
   digitalWrite(MOSIPin, LOW);
   digitalWrite(SCKPin, LOW);
@@ -502,7 +503,8 @@ ISR(WDT_vect)
   wdt_disable();
 }
 
-void wakeUp() { //bugged
+void wakeUp() {
+  Serial.println("Waking up...");
   sleep_disable();
   power_all_enable();
   wdt_reset();
@@ -522,12 +524,7 @@ void wakeUp() { //bugged
   SPI.setDataMode(SPI_MODE0);
   SPI.setBitOrder(MSBFIRST);
   SPI.setClockDivider(SPI_CLOCK_DIV32);
-  delay(10);
-  digitalWrite(IRQPin, LOW);
-  delayMicroseconds(100);
-  digitalWrite(IRQPin, HIGH);
-  delay(10);
-  digitalWrite(IRQPin, LOW);
+  wakeUpNFC();
 
   NFCReady = 0;
 }

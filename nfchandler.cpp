@@ -108,6 +108,14 @@ byte sendCommandAndWait(byte cmd, byte data1, byte data2, byte data3,int maxwait
   return 0; 
 }
 
+void wakeUpNFC(){
+  delay(10);                      // send a wake up
+  digitalWrite(IRQPin, LOW);      // pulse
+  delayMicroseconds(100);
+  digitalWrite(IRQPin, HIGH); 
+  delay(10);
+}
+
 void resetCR95HF(){
   Serial.println("Reseting");
   digitalWrite(SSPin, LOW);
