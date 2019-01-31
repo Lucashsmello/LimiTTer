@@ -12,19 +12,21 @@ const int NFCPin3 = 4; // Power pin BM019
 const int MOSIPin = 11;
 const int SCKPin = 13;
 
-void poolUntilRespond();
+void pollUntilRespond();
 /**
  * Returns 1 when maxwait_ms is reached, 0 otherwise.
  */
-byte poolUntilRespond(int maxwait_ms);
+byte pollUntilRespond(int maxwait_ms);
 void sendCommand(byte cmd, byte data); //length 1
-void sendCommand(byte cmd, byte data1, byte data2); //lenght 2
-void sendCommand(byte cmd, byte data1, byte data2, byte data3); //lenght 3
+void sendCommand(byte cmd, byte data1, byte data2); //length 2
+void sendCommand(byte cmd, byte data1, byte data2, byte data3); //length 3
 void sendCommand(byte cmd, byte datas[], byte length);
 
 /**
  * Sends and waits for its response which is automatically stored in RXBuffer, if successful.
  * Returns 0 if no error occured.
+ * 
+ * maxwait: in miliseconds
  */
 byte sendCommandAndWait(byte cmd, byte data1, byte data2,int maxwait); //length 2
 byte sendCommandAndWait(byte cmd, byte data1, byte data2, byte data3,int maxwait); //length 3

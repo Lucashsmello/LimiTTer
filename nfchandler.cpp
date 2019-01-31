@@ -6,7 +6,7 @@
 
 byte RXBuffer[24];
 
-void poolUntilRespond(){
+void pollUntilRespond(){
   digitalWrite(SSPin, LOW);
   while (RXBuffer[0] != 8)
   {
@@ -16,14 +16,14 @@ void poolUntilRespond(){
   digitalWrite(SSPin, HIGH);
 }
 
-byte poolUntilRespond(int maxwait_ms){
+byte pollUntilRespond(int maxwait_ms){
   digitalWrite(SSPin, LOW);
   while (RXBuffer[0] != 8)
   {
     RXBuffer[0] = SPI.transfer(0x03);  // Write 3 until
     RXBuffer[0] = RXBuffer[0] & 0x08;  // bit 3 is set
     if(maxwait_ms==0){
-      Serial.println("WARNING: poolUntilRespond() returning 1");
+      Serial.println("WARNING: pollUntilRespond() returning 1");
       digitalWrite(SSPin, HIGH);
       return 1;
     }
@@ -76,13 +76,7 @@ void sendCommand(byte cmd, byte datas[], byte length){
   digitalWrite(SSPin, HIGH);
 }
 
-byte sendCommandAndWait(byte cmd, byte data1, byte data2,int maxwait){
-  sendCommand(cmd,data1,data2);
-  delay(SPI_WAIT_DELAY);
-  if(poolUntilRespond(maxwait)==1){
-    return 1;
-  }
-  delay(SPI_WAIT_DELAY);
+void catchResponse(){
   digitalWrite(SSPin, LOW);
   SPI.transfer(0x02);   // SPI control byte for read
   RXBuffer[0] = SPI.transfer(0);  // response code
@@ -90,23 +84,27 @@ byte sendCommandAndWait(byte cmd, byte data1, byte data2,int maxwait){
   for (byte i = 0; i < RXBuffer[1]; i++)
     RXBuffer[i + 2] = SPI.transfer(0); // data
   digitalWrite(SSPin, HIGH);
+}
+
+byte sendCommandAndWait(byte cmd, byte data1, byte data2,int maxwait){
+  sendCommand(cmd,data1,data2);
+  delay(SPI_WAIT_DELAY);
+  if(pollUntilRespond(maxwait)==1){
+    return 1;
+  }
+  delay(SPI_WAIT_DELAY);
+  catchResponse();
   return 0;
 }
 
 byte sendCommandAndWait(byte cmd, byte data1, byte data2, byte data3,int maxwait){
   sendCommand(cmd,data1,data2,data3);
   delay(SPI_WAIT_DELAY);
-  if(poolUntilRespond(maxwait)==1){
+  if(pollUntilRespond(maxwait)==1){
     return 1;
   }
   delay(SPI_WAIT_DELAY);
-  digitalWrite(SSPin, LOW);
-  SPI.transfer(0x02);   // SPI control byte for read
-  RXBuffer[0] = SPI.transfer(0);  // response code
-  RXBuffer[1] = SPI.transfer(0);  // length of data
-  for (byte i = 0; i < RXBuffer[1]; i++)
-    RXBuffer[i + 2] = SPI.transfer(0); // data
-  digitalWrite(SSPin, HIGH);
+  catchResponse();
   return 0; 
 }
 

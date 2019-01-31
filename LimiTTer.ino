@@ -119,7 +119,7 @@ void SetProtocol_Command() {
               0x01, // code for ISO/IEC 15693
               0x0D);// Wait for SOF, 10% modulation, append CRC
   delay(1);
-  poolUntilRespond();
+  pollUntilRespond();
   delay(1);
 
   digitalWrite(SSPin, LOW);
@@ -166,6 +166,16 @@ void Inventory_Command() {
   }
 }
 
+void byteToHex(const byte* x, char* str_Out, byte n){
+  static const char * hex = "0123456789ABCDEF";
+  const byte* x_last=x+n;
+  for (; x != x_last; str_Out += 2, x++) {
+    str_Out[0] = hex[(*x >> 4) & 0xF];
+    str_Out[1] = hex[ *x       & 0xF];
+  }
+  str_Out[0] = 0; //???
+}
+
 float Read_Memory() {
   Serial.println("Read_Memory");
   byte oneBlock[8];
@@ -183,6 +193,8 @@ float Read_Memory() {
   float validTrend[16];
   byte readError = 0;
   int readTry;
+  char str[17];
+  str[16] = 0; 
 
   for ( int b = 3; b < 16; b++) {
     readTry = 0;
@@ -204,19 +216,9 @@ float Read_Memory() {
         continue;
       }
       readError = 0;
-      
-      for (int i = 0; i < 8; i++)
-        oneBlock[i] = RXBuffer[i + 3];
 
-      char str[24];
-      unsigned char * pin = oneBlock;
-      const char * hex = "0123456789ABCDEF";
-      char * pout = str;
-      for (; pin < oneBlock + 8; pout += 2, pin++) {
-        pout[0] = hex[(*pin >> 4) & 0xF];
-        pout[1] = hex[ *pin     & 0xF];
-      }
-      pout[0] = 0;
+      memcpy(oneBlock, RXBuffer+3, 8); //dest, source, size
+      byteToHex(oneBlock,str,8);
       Serial.println(str);
       trendValues += str;
     } while ( (readError) && (readTry < MAX_NFC_READTRIES) );
@@ -227,49 +229,16 @@ float Read_Memory() {
   
   readTry = 0;
   do {
-    readError = 0;
-    digitalWrite(SSPin, LOW);
-    SPI.transfer(0x00);  // SPI control byte to send command to CR95HF
-    SPI.transfer(0x04);  // Send Receive CR95HF command
-    SPI.transfer(0x03);  // length of data that follows
-    SPI.transfer(0x02);  // request Flags byte
-    SPI.transfer(0x20);  // Read Single Block command for ISO/IEC 15693
-    SPI.transfer(39);  // memory block address
-    digitalWrite(SSPin, HIGH);
-    delay(1);
-
-    digitalWrite(SSPin, LOW);
-    while (RXBuffer[0] != 8)
-    {
-      RXBuffer[0] = SPI.transfer(0x03);  // Write 3 until
-      RXBuffer[0] = RXBuffer[0] & 0x08;  // bit 3 is set
-    }
-    digitalWrite(SSPin, HIGH);
-    delay(1);
-
-    digitalWrite(SSPin, LOW);
-    SPI.transfer(0x02);   // SPI control byte for read
-    RXBuffer[0] = SPI.transfer(0);  // response code
-    RXBuffer[1] = SPI.transfer(0);  // length of data
-    for (byte i = 0; i < RXBuffer[1]; i++)
-      RXBuffer[i + 2] = SPI.transfer(0); // data
+    readError=sendCommandAndWait(0x04, // Send Receive CR95HF command
+              0x02, // request Flags byte
+              0x20, // Read Single Block command for ISO/IEC 15693
+              39,// memory block address
+              2000);
     if (RXBuffer[0] != 128)
       readError = 1;
-    digitalWrite(SSPin, HIGH);
-    delay(1);
 
-    for (int i = 0; i < 8; i++)
-      oneBlock[i] = RXBuffer[i + 3];
-
-    char str[24];
-    unsigned char * pin = oneBlock;
-    const char * hex = "0123456789ABCDEF";
-    char * pout = str;
-    for (; pin < oneBlock + 8; pout += 2, pin++) {
-      pout[0] = hex[(*pin >> 4) & 0xF];
-      pout[1] = hex[ *pin     & 0xF];
-    }
-    pout[0] = 0;
+    memcpy(oneBlock, RXBuffer+3, 8); //dest, source, size
+    byteToHex(oneBlock,str,8);
     if (!readError)
       elapsedMinutes += str;
     readTry++;
